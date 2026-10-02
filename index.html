@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; overflow: hidden; }
     body, html { width: 100%; height: 100%; background-color: #000; font-family: sans-serif; }
-    
+
     /* Kamera Passthrough Arka Planı */
     #webcam {
       position: absolute;
@@ -41,12 +41,15 @@
       top: 20px; left: 50%;
       transform: translateX(-50%);
       z-index: 10;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.72);
       color: #00ffcc;
-      padding: 8px 16px;
+      padding: 10px 18px;
       border-radius: 20px;
       font-size: 14px;
-      border: 1px solid #00ffcc;
+      border: 1px solid rgba(0, 255, 204, 0.8);
+      box-shadow: 0 0 18px rgba(0, 255, 204, 0.25);
+      text-align: center;
+      letter-spacing: 0.02em;
     }
   </style>
 
@@ -58,7 +61,7 @@
 <body>
 
   <div id="status">Sistem Başlatılıyor... Kamera izni verin.</div>
-  
+
   <video id="webcam" autoplay playsinline></video>
   <canvas id="handCanvas"></canvas>
   <div id="threeCanvas"></div>
@@ -68,55 +71,101 @@
     const handCanvas = document.getElementById('handCanvas');
     const canvasCtx = handCanvas.getContext('2d');
     const statusEl = document.getElementById('status');
+    const threeContainer = document.getElementById('threeCanvas');
 
-    // Canvas boyutlarını ekran genişliğine ayarla
-    handCanvas.width = window.innerWidth;
-    handCanvas.height = window.innerHeight;
+    function updateCanvasSize() {
+      handCanvas.width = window.innerWidth;
+      handCanvas.height = window.innerHeight;
+    }
+
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
 
     // --- 1. THREE.JS 3D SAHNE KURULUMU (Uzayda Süzülen Ekran) ---
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    document.getElementById('threeCanvas').appendChild(renderer.domElement);
+    threeContainer.appendChild(renderer.domElement);
 
-    // Havada süzülen yeşil 3D çerçeve (Geleceğin YouTube Paneli)
+    const screenGroup = new THREE.Group();
     const geometry = new THREE.PlaneGeometry(3, 1.8);
     const material = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, side: THREE.DoubleSide });
     const spatialScreen = new THREE.Mesh(geometry, material);
-    spatialScreen.position.set(0, 0, -3); // Kameranın 3 birim önünde durur
-    scene.add(spatialScreen);
+    spatialScreen.position.set(0, 0, -3);
+    screenGroup.add(spatialScreen);
+    scene.add(screenGroup);
 
     camera.position.z = 1;
 
     function animate3D() {
       requestAnimationFrame(animate3D);
-      spatialScreen.rotation.y += 0.005; // Yavaşça süzülme efekti
+      screenGroup.rotation.y += 0.008;
+      screenGroup.rotation.x = Math.sin(Date.now() * 0.0008) * 0.35;
       renderer.render(scene, camera);
     }
     animate3D();
 
     // --- 2. MEDIAPIPE HAND TRACKING (El Takibi) ---
+    const handConnections = [
+      [0, 1], [1, 2], [2, 3], [3, 4],
+      [0, 5], [5, 6], [6, 7], [7, 8],
+      [5, 9], [9, 10], [10, 11], [11, 12],
+      [9, 13], [13, 14], [14, 15], [15, 16],
+      [13, 17], [17, 18], [18, 19], [19, 20],
+      [0, 17]
+    ];
+
+    function drawHandLandmarks(landmarks) {
+      canvasCtx.beginPath();
+      canvasCtx.lineWidth = 3;
+      canvasCtx.strokeStyle = '#00ffcc';
+      canvasCtx.shadowColor = '#00ffcc';
+      canvasCtx.shadowBlur = 10;
+
+      for (const [start, end] of handConnections) {
+        const p1 = landmarks[start];
+        const p2 = landmarks[end];
+
+        if (!p1 || !p2) continue;
+
+        const x1 = p1.x * handCanvas.width;
+        const y1 = p1.y * handCanvas.height;
+        const x2 = p2.x * handCanvas.width;
+        const y2 = p2.y * handCanvas.height;
+
+        canvasCtx.moveTo(x1, y1);
+        canvasCtx.lineTo(x2, y2);
+      }
+
+      canvasCtx.stroke();
+      canvasCtx.shadowBlur = 0;
+
+      for (let i = 0; i < landmarks.length; i++) {
+        const x = landmarks[i].x * handCanvas.width;
+        const y = landmarks[i].y * handCanvas.height;
+        const isTip = i === 8 || i === 4 || i === 20;
+
+        canvasCtx.beginPath();
+        canvasCtx.arc(x, y, isTip ? 7 : 5, 0, 2 * Math.PI);
+        canvasCtx.fillStyle = isTip ? '#ff0055' : '#00ffcc';
+        canvasCtx.fill();
+      }
+    }
+
     function onResults(results) {
-      statusEl.innerText = "PhoneQuest Aktif - Eliniz Taranıyor";
-      canvasCtx.save();
       canvasCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
 
-      if (results.multiHandLandmarks) {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        statusEl.innerText = `PhoneQuest Aktif - ${results.multiHandLandmarks.length} el tespit edildi`;
+
         for (const landmarks of results.multiHandLandmarks) {
-          // El eklem noktalarını çiz
-          for (let i = 0; i < landmarks.length; i++) {
-            const x = landmarks[i].x * handCanvas.width;
-            const y = landmarks[i].y * handCanvas.height;
-            
-            canvasCtx.beginPath();
-            canvasCtx.arc(x, y, 6, 0, 2 * Math.PI);
-            canvasCtx.fillStyle = (i === 8 || i === 4) ? "#ff0055" : "#00ffcc"; // Baş ve işaret parmağı ucu kırmızı
-            canvasCtx.fill();
-          }
+          drawHandLandmarks(landmarks);
         }
+        return;
       }
-      canvasCtx.restore();
+
+      statusEl.innerText = 'PhoneQuest Aktif - Elinizi ekranda tutun';
     }
 
     const hands = new Hands({
@@ -139,11 +188,11 @@
       },
       width: 1280,
       height: 720,
-      facingMode: 'environment' // Arka kamerayı seçer
+      facingMode: 'environment'
     });
 
     cameraUtils.start().catch(err => {
-      statusEl.innerText = "Kamera Hatası: " + err.message;
+      statusEl.innerText = 'Kamera Hatası: ' + err.message;
     });
   </script>
 </body>
