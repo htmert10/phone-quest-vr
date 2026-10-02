@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>PhoneQuest VR - Spatial Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; overflow: hidden; }
+    body, html { width: 100%; height: 100%; background-color: #000; font-family: sans-serif; }
+    
+    /* Kamera Passthrough Arka Planı */
+    #webcam {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+    }
+
+    /* El Takip Çizim Katmanı */
+    #handCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    /* Three.js 3D Sahne Katmanı */
+    #threeCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    /* Arayüz Bilgi Notu */
+    #status {
+      position: absolute;
+      top: 20px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.7);
+      color: #00ffcc;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      border: 1px solid #00ffcc;
+    }
+  </style>
+
+  <!-- MediaPipe & Three.js Kütüphaneleri -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div id="status">Sistem Başlatılıyor... Kamera izni verin.</div>
+  
+  <video id="webcam" autoplay playsinline></video>
+  <canvas id="handCanvas"></canvas>
+  <div id="threeCanvas"></div>
+
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const handCanvas = document.getElementById('handCanvas');
+    const canvasCtx = handCanvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+
+    // Canvas boyutlarını ekran genişliğine ayarla
+    handCanvas.width = window.innerWidth;
+    handCanvas.height = window.innerHeight;
+
+    // --- 1. THREE.JS 3D SAHNE KURULUMU (Uzayda Süzülen Ekran) ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('threeCanvas').appendChild(renderer.domElement);
+
+    // Havada süzülen yeşil 3D çerçeve (Geleceğin YouTube Paneli)
+    const geometry = new THREE.PlaneGeometry(3, 1.8);
+    const material = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, side: THREE.DoubleSide });
+    const spatialScreen = new THREE.Mesh(geometry, material);
+    spatialScreen.position.set(0, 0, -3); // Kameranın 3 birim önünde durur
+    scene.add(spatialScreen);
+
+    camera.position.z = 1;
+
+    function animate3D() {
+      requestAnimationFrame(animate3D);
+      spatialScreen.rotation.y += 0.005; // Yavaşça süzülme efekti
+      renderer.render(scene, camera);
+    }
+    animate3D();
+
+    // --- 2. MEDIAPIPE HAND TRACKING (El Takibi) ---
+    function onResults(results) {
+      statusEl.innerText = "PhoneQuest Aktif - Eliniz Taranıyor";
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+
+      if (results.multiHandLandmarks) {
+        for (const landmarks of results.multiHandLandmarks) {
+          // El eklem noktalarını çiz
+          for (let i = 0; i < landmarks.length; i++) {
+            const x = landmarks[i].x * handCanvas.width;
+            const y = landmarks[i].y * handCanvas.height;
+            
+            canvasCtx.beginPath();
+            canvasCtx.arc(x, y, 6, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = (i === 8 || i === 4) ? "#ff0055" : "#00ffcc"; // Baş ve işaret parmağı ucu kırmızı
+            canvasCtx.fill();
+          }
+        }
+      }
+      canvasCtx.restore();
+    }
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    hands.onResults(onResults);
+
+    // --- 3. KAMERA BAŞLATMA (Passthrough) ---
+    const cameraUtils = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+      },
+      width: 1280,
+      height: 720,
+      facingMode: 'environment' // Arka kamerayı seçer
+    });
+
+    cameraUtils.start().catch(err => {
+      statusEl.innerText = "Kamera Hatası: " + err.message;
+    });
+  </script>
+</body>
+</html>
